@@ -1,0 +1,2 @@
+const base=process.env.HYPOTHESIS_API_URL||'https://api.hypothes.is/api'
+export async function hypothesisFetch(path:string,init:RequestInit={}){const token=process.env.HYPOTHESIS_TOKEN;if(!token)throw new Error('HYPOTHESIS_TOKEN manquant');const r=await fetch(`${base}${path}`,{...init,headers:{authorization:`Bearer ${token}`,'content-type':'application/json',...(init.headers||{})}});if(!r.ok)throw new Error(`Hypothesis ${r.status}`);return r.json()}

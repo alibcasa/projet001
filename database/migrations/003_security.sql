@@ -1,0 +1,10 @@
+alter table public.categories enable row level security;
+alter table public.tags enable row level security;
+alter table public.document_categories enable row level security;
+alter table public.document_tags enable row level security;
+create policy "categories read" on public.categories for select to authenticated using(true);
+create policy "categories insert" on public.categories for insert to authenticated with check(true);
+create policy "tags read" on public.tags for select to authenticated using(true);
+create policy "tags insert" on public.tags for insert to authenticated with check(true);
+create policy "doc categories via document" on public.document_categories for all using(exists(select 1 from public.documents d where d.id=document_id and d.user_id=auth.uid())) with check(exists(select 1 from public.documents d where d.id=document_id and d.user_id=auth.uid()));
+create policy "doc tags via document" on public.document_tags for all using(exists(select 1 from public.documents d where d.id=document_id and d.user_id=auth.uid())) with check(exists(select 1 from public.documents d where d.id=document_id and d.user_id=auth.uid()));
