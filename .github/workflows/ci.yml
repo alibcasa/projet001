@@ -11,10 +11,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm install
+      - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: example
+          SUPABASE_SERVICE_ROLE_KEY: example
+          AI_PROVIDER: ollama
