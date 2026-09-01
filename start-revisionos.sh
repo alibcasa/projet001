@@ -17,13 +17,11 @@ echo "===================================================="
 echo " RevisionOS V1 - Installation automatique GitHub"
 echo "===================================================="
 
-# 1) Dépendances système
 if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
   sudo apt update
   sudo apt install -y git curl ca-certificates
 fi
 
-# 2) Node.js 22 si absent ou trop ancien
 need_node=0
 if ! command -v node >/dev/null 2>&1; then
   need_node=1
@@ -41,24 +39,28 @@ fi
 info "Node.js $(node -v)"
 info "npm $(npm -v)"
 
-# 3) Télécharger une copie propre du projet
 if [ -d "$APP/.git" ]; then
-  warn "Mise à jour de la copie existante..."
-  git -C "$APP" fetch origin "$BRANCH"
-  git -C "$APP" checkout "$BRANCH"
+  warn "Synchronisation stricte avec GitHub..."
+  git -C "$APP" remote set-url origin "$REPO"
+  git -C "$APP" fetch --prune origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+  git -C "$APP" checkout -B "$BRANCH" "origin/$BRANCH"
   git -C "$APP" reset --hard "origin/$BRANCH"
   git -C "$APP" clean -fd -e .env.local
 else
   rm -rf "$APP"
   mkdir -p "$(dirname "$APP")"
-  git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"
+  git clone --branch "$BRANCH" --single-branch "$REPO" "$APP"
 fi
 
 cd "$APP"
+local_sha="$(git rev-parse HEAD)"
+remote_sha="$(git rev-parse origin/$BRANCH)"
+[ "$local_sha" = "$remote_sha" ] || fail "La copie locale n'est pas au dernier commit GitHub."
+info "Commit GitHub installé: ${local_sha:0:12}"
+
 [ -f package.json ] || fail "package.json absent après clonage GitHub."
 info "package.json trouvé: $APP/package.json"
 
-# 4) Configuration .env.local
 if [ ! -f .env.local ]; then
   cp .env.example .env.local
 fi
@@ -90,12 +92,10 @@ set_env MICROSOFT_CLIENT_SECRET "${MICROSOFT_CLIENT_SECRET:-}"
 set_env MICROSOFT_TENANT_ID "${MICROSOFT_TENANT_ID:-common}"
 info ".env.local prêt"
 
-# 5) Installation npm
 warn "Installation des dépendances npm..."
 npm install --no-audit --no-fund
 info "Dépendances installées"
 
-# 6) Base Supabase/PostgreSQL facultative mais automatique si URL fournie
 if [ -n "${SUPABASE_DB_URL:-}" ]; then
   if ! command -v psql >/dev/null 2>&1; then
     sudo apt update
@@ -114,7 +114,6 @@ else
   warn "SUPABASE_DB_URL non définie: migrations SQL non exécutées automatiquement."
 fi
 
-# 7) Contrôle du code
 warn "Vérification TypeScript..."
 npm run typecheck
 info "TypeScript OK"
@@ -123,16 +122,15 @@ warn "Build Next.js..."
 npm run build
 info "Build Next.js OK"
 
-# 8) Résumé configuration
 if grep -q '^NEXT_PUBLIC_SUPABASE_URL=https\?://' .env.local && ! grep -q '^NEXT_PUBLIC_SUPABASE_URL=$' .env.local; then
   info "Supabase configuré dans .env.local"
 else
-  warn "Supabase n'a pas encore de vraies clés: l'interface démarre, mais auth/DB nécessitent les variables Supabase."
+  warn "Supabase n'a pas encore de vraies clés: auth/DB nécessitent les variables Supabase."
 fi
 
-# 9) Démarrage
 printf '\n====================================================\n'
 printf ' RevisionOS prêt\n'
+printf ' Commit  : %s\n' "$local_sha"
 printf ' Dossier : %s\n' "$APP"
 printf ' Adresse : http://localhost:%s\n' "$PORT"
 printf '====================================================\n\n'
