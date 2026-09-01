@@ -1,0 +1,3 @@
+import {NextResponse} from 'next/server'
+import {createClient} from '@/lib/supabase/server'
+export async function GET(r:Request){const s=await createClient();const q=new URL(r.url).searchParams.get('q')?.trim();if(!q)return NextResponse.json({documents:[],keynotes:[],references:[]});const pattern=`%${q}%`;const [d,k,ref]=await Promise.all([s.from('documents').select('id,title,total_pages').ilike('title',pattern).limit(20),s.from('keynotes').select('id,document_id,page_number,content,comment').or(`content.ilike.${pattern},comment.ilike.${pattern}`).limit(20),s.from('references_library').select('*').ilike('title',pattern).limit(20)]);return NextResponse.json({documents:d.data||[],keynotes:k.data||[],references:ref.data||[]})}

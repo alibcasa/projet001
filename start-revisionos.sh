@@ -1,53 +1,21 @@
 #!/usr/bin/env bash
-set -e
-
-APP_DIR="$HOME/Downloads/RevisionOS_V1"
-REPO_URL="https://github.com/alibcasa/projet001.git"
+set -euo pipefail
+REPO="https://github.com/alibcasa/projet001.git"
 BRANCH="revisionos-v1"
-
-echo "=== RevisionOS V1 - GitHub install & start ==="
-
-if ! command -v git >/dev/null 2>&1; then
-  sudo apt update
-  sudo apt install -y git
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "ERREUR: Node.js n'est pas installé."
-  echo "Installe Node.js 22 puis relance."
-  exit 1
-fi
-
-echo "Node.js: $(node -v)"
-echo "npm: $(npm -v)"
-
-rm -rf "$APP_DIR"
-echo "Clonage depuis GitHub..."
-git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$APP_DIR"
-cd "$APP_DIR"
-
-if [ ! -f package.json ]; then
-  echo "ERREUR: package.json absent dans le dépôt GitHub."
-  pwd
-  ls -la
-  exit 1
-fi
-
-echo "package.json trouvé: $APP_DIR/package.json"
-
-if [ ! -f .env.local ] && [ -f .env.example ]; then
-  cp .env.example .env.local
-  echo ".env.local créé depuis .env.example"
-fi
-
-echo "Installation des dépendances..."
+APP="$HOME/Downloads/RevisionOS_V1"
+echo "=== RevisionOS V1 - Installation GitHub ==="
+command -v git >/dev/null || { sudo apt update && sudo apt install -y git; }
+command -v node >/dev/null || { echo "Node.js 22 requis"; exit 1; }
+echo "Node: $(node -v) | npm: $(npm -v)"
+rm -rf "$APP"
+git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"
+cd "$APP"
+test -f package.json || { echo "ERREUR: package.json absent dans GitHub"; exit 1; }
+[ -f .env.local ] || cp .env.example .env.local
+echo "Projet: $APP"
+echo "Installation npm..."
 npm install
-
 echo "Vérification TypeScript..."
 npm run typecheck || true
-
-echo "Démarrage RevisionOS sur http://localhost:3000"
-if command -v xdg-open >/dev/null 2>&1; then
-  (sleep 5 && xdg-open "http://localhost:3000" >/dev/null 2>&1) &
-fi
+echo "Démarrage: http://localhost:3000"
 npm run dev

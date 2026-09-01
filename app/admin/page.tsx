@@ -1,4 +1,2 @@
-export default function AdminPage() {
-  const rows = [["Admin principal","admin@example.com","Super Admin","Actif"],["Éditeur","editor@example.com","Editor","Actif"],["Utilisateur","user@example.com","User","Actif"]];
-  return (<div className="space-y-6"><div className="flex justify-between"><div><h1 className="text-2xl font-bold">Administration</h1><p className="text-gray-500">Utilisateurs, rôles et permissions.</p></div><button className="rounded-xl bg-gray-900 px-4 py-2 text-sm text-white">Ajouter utilisateur</button></div><div className="overflow-hidden rounded-2xl border border-gray-200 bg-white"><table className="w-full text-sm"><thead className="bg-gray-50 text-left"><tr><th className="p-3">Nom</th><th className="p-3">Email</th><th className="p-3">Rôle</th><th className="p-3">Statut</th></tr></thead><tbody>{rows.map(r=><tr key={r[1]} className="border-t border-gray-100">{r.map(c=><td key={c} className="p-3">{c}</td>)}</tr>)}</tbody></table></div></div>);
-}
+import{UsersClient}from'@/components/admin/users-client'
+export default function AdminPage(){return <div><h1 className="text-3xl font-bold">Administration</h1><p className="mt-2 text-zinc-500">Utilisateurs, rôles, accès et supervision.</p><div className="mt-6"><UsersClient/></div></div>}

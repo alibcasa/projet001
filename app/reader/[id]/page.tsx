@@ -1,14 +1,4 @@
-import PdfShell from "@/components/pdf-reader/pdf-shell";
-
-export default async function ReaderPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">Lecteur PDF</h1>
-        <p className="text-sm text-gray-500">Document #{id} · reprise automatique · progression réelle · keynotes.</p>
-      </div>
-      <PdfShell />
-    </div>
-  );
-}
+import { notFound } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { ReaderClient } from '@/components/pdf-reader/reader-client'
+export default async function ReaderPage({params}:{params:Promise<{id:string}>}){const {id}=await params;const supabase=await createClient();const {data:doc}=await supabase.from('documents').select('*').eq('id',id).single();if(!doc)notFound();const signed=await supabase.storage.from('documents').createSignedUrl(doc.storage_path,3600);if(!signed.data?.signedUrl)notFound();const {data:progress}=await supabase.from('reading_progress').select('last_page').eq('document_id',id).maybeSingle();return <ReaderClient documentId={id} url={signed.data.signedUrl} title={doc.title} totalPages={doc.total_pages||0} initialPage={progress?.last_page||1}/>}

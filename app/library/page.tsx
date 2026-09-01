@@ -1,3 +1,2 @@
-import DocumentCard from "@/components/library/document-card";
-const docs=[{id:"1",title:"Code des douanes 2026",category:"Douane",progress:82},{id:"2",title:"Procédure pénale",category:"Droit",progress:41},{id:"3",title:"Introduction au Machine Learning",category:"Informatique",progress:17},{id:"4",title:"Macroéconomie appliquée",category:"Économie",progress:0}];
-export default function LibraryPage(){return <div className="space-y-6"><div className="flex items-end justify-between"><div><h1 className="text-2xl font-bold">Bibliothèque</h1><p className="text-gray-500">PDF, classification automatique, catégories, tags et progression.</p></div><button className="rounded-xl bg-gray-900 px-4 py-2 text-sm text-white">Importer des PDF</button></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{docs.map(d=><DocumentCard key={d.id} {...d}/>)}</div></div>}
+import { LibraryClient } from '@/components/library/library-client'
+export default function LibraryPage(){return <div><h1 className="text-3xl font-bold">Bibliothèque</h1><p className="mt-2 text-zinc-500">Importez, classez, lisez et révisez vos PDF.</p><div className="mt-6"><LibraryClient/></div></div>}

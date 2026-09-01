@@ -1,0 +1,3 @@
+import {NextResponse} from 'next/server'
+import {createClient} from '@/lib/supabase/server'
+export async function GET(){const s=await createClient();const{data:{user}}=await s.auth.getUser();if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});const{data:me}=await s.from('profiles').select('role').eq('id',user.id).maybeSingle();if(!['admin','super_admin'].includes(me?.role||''))return NextResponse.json({error:'Forbidden'},{status:403});const{data,error}=await s.from('profiles').select('id,full_name,role,created_at').order('created_at',{ascending:false});return error?NextResponse.json({error:error.message},{status:400}):NextResponse.json(data)}

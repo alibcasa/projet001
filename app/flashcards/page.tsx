@@ -1,8 +1,2 @@
-export default function Page() {
-  return (
-    <div className="space-y-6">
-      <div><h1 className="text-2xl font-bold">Flashcards</h1><p className="text-gray-500">Cartes générées depuis les Keynotes ou depuis les PDF.</p></div>
-      <div className="rounded-2xl border border-gray-200 bg-white p-6"><p className="text-sm text-gray-600">Module prêt à être branché sur les tables et API définies dans le projet.</p></div>
-    </div>
-  );
-}
+import{FlashcardsClient}from'@/components/flashcards/flashcards-client'
+export default function Page(){return <div><h1 className="text-3xl font-bold">Flashcards</h1><p className="mt-2 text-zinc-500">Cartes de mémorisation et répétition espacée.</p><div className="mt-6"><FlashcardsClient/></div></div>}

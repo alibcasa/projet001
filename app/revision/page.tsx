@@ -1,10 +1,3 @@
-export default function Page() {
-  return (
-    <div className="space-y-6">
-      <div><h1 className="text-2xl font-bold">Révision</h1><p className="text-gray-500">Sessions, répétition espacée, points faibles, objectifs et statistiques.</p></div>
-      <div className="rounded-2xl border border-gray-200 bg-white p-6">
-        <p className="text-sm text-gray-600">Module prêt à être branché sur les tables et API définies dans le projet.</p>
-      </div>
-    </div>
-  );
-}
+import Link from 'next/link'
+import{createClient}from'@/lib/supabase/server'
+export default async function Page(){const s=await createClient();const[{count:docs},{count:notes},{count:cards},{data:progress}]=await Promise.all([s.from('documents').select('*',{count:'exact',head:true}),s.from('keynotes').select('*',{count:'exact',head:true}),s.from('flashcards').select('*',{count:'exact',head:true}),s.from('reading_progress').select('completion_percent')]);const avg=progress?.length?Math.round(progress.reduce((a:any,b:any)=>a+(b.completion_percent||0),0)/progress.length):0;return <div><h1 className="text-3xl font-bold">Révision</h1><div className="mt-6 grid gap-4 md:grid-cols-4">{[['Documents',docs||0],['Keynotes',notes||0],['Flashcards',cards||0],['Progression moyenne',`${avg}%`]].map(([l,v])=><div key={String(l)} className="rounded-2xl border bg-white p-5"><p className="text-sm text-zinc-500">{l}</p><p className="mt-2 text-3xl font-bold">{v}</p></div>)}</div><div className="mt-6 flex flex-wrap gap-3"><Link className="rounded-xl bg-black px-4 py-3 text-white" href="/qcm">Créer un QCM</Link><Link className="rounded-xl border bg-white px-4 py-3" href="/flashcards">Réviser les flashcards</Link><Link className="rounded-xl border bg-white px-4 py-3" href="/library">Continuer la lecture</Link></div></div>}
