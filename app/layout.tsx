@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="fr">">
+    <html lang="fr">
       <body>
         <Sidebar />
         <div className="ml-64 min-h-screen">
