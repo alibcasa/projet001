@@ -1,0 +1,1 @@
+import QcmGenerator from "@/components/qcm/generator"; export default function QcmPage(){return <div className="space-y-6"><div><h1 className="text-2xl font-bold">QCM</h1><p className="text-gray-500">Générer depuis un PDF, plusieurs PDF, des pages ou des Keynotes.</p></div><QcmGenerator/></div>}

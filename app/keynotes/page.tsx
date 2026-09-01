@@ -1,0 +1,1 @@
+export default function Page(){return <div className="space-y-6"><div><h1 className="text-2xl font-bold">Keynotes</h1><p className="text-gray-500">Points importants, règles, définitions, questions, éléments à mémoriser et annotations.</p></div></div>}

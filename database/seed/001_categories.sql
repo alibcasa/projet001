@@ -1,0 +1,1 @@
+insert into categories(name,slug) values ('Douane','douane'),('Droit','droit'),('Économie','economie'),('Informatique','informatique'),('Gestion','gestion'),('Administration publique','administration-publique'),('Mathématiques','mathematiques'),('Langues','langues'),('Formation','formation'),('Rapports','rapports'),('Divers','divers') on conflict (slug) do nothing;

@@ -1,0 +1,1 @@
+export default function Page(){return <div className="space-y-6"><div><h1 className="text-2xl font-bold">Login</h1><p className="text-gray-500">Connexion utilisateur via Supabase Auth.</p></div></div>}

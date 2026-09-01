@@ -1,0 +1,1 @@
+export default function Page(){return <div className="space-y-6"><div><h1 className="text-2xl font-bold">Projets</h1><p className="text-gray-500">Vue locale synchronisable avec OpenProject.</p></div></div>}

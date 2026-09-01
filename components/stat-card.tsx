@@ -1,0 +1,1 @@
+export default function StatCard({label,value,detail}:{label:string;value:string;detail?:string}){return <div className="rounded-2xl border border-gray-200 bg-white p-5"><div className="text-sm text-gray-500">{label}</div><div className="mt-2 text-3xl font-bold">{value}</div>{detail&&<div className="mt-2 text-xs text-gray-400">{detail}</div>}</div>}
