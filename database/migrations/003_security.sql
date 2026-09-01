@@ -2,6 +2,14 @@ alter table public.categories enable row level security;
 alter table public.tags enable row level security;
 alter table public.document_categories enable row level security;
 alter table public.document_tags enable row level security;
+
+drop policy if exists "categories read" on public.categories;
+drop policy if exists "categories insert" on public.categories;
+drop policy if exists "tags read" on public.tags;
+drop policy if exists "tags insert" on public.tags;
+drop policy if exists "doc categories via document" on public.document_categories;
+drop policy if exists "doc tags via document" on public.document_tags;
+
 create policy "categories read" on public.categories for select to authenticated using(true);
 create policy "categories insert" on public.categories for insert to authenticated with check(true);
 create policy "tags read" on public.tags for select to authenticated using(true);
