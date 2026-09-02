@@ -25,7 +25,7 @@ const groups = [
     title: "Notes & révision",
     items: [
       ["/keynotes", "Annotations", Highlighter],
-      ["/keynotes", "Notes & remarques", StickyNote],
+      ["/notes", "Notes Joplin", StickyNote],
       ["/revision", "Centre de révision", Target],
       ["/qcm", "QCM", CircleHelp],
       ["/flashcards", "Flashcards", GalleryVerticalEnd],
