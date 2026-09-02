@@ -8,16 +8,29 @@ async function getConfig() {
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const { data } = await supabase.from('integrations').select('enabled,config').eq('user_id', user.id).eq('provider', 'joplin').maybeSingle()
   const config = (data?.config || {}) as { baseUrl?:string; token?:string }
-  if (!data?.enabled || !config.baseUrl || !config.token) return { error: NextResponse.json({ error: 'Joplin non connecté' }, { status: 409 }) }
+  if (!data?.enabled || !config.baseUrl || !config.token) return { error: NextResponse.json({ error: 'Joplin non connecté. Ouvrez Joplin et activez Web Clipper.' }, { status: 409 }) }
   return { supabase, user, baseUrl: config.baseUrl, token: config.token }
 }
 
 async function revisionNotebook(baseUrl:string, token:string) {
-  const found = await joplinRequest(baseUrl, token, '/search?query=RevisionOS%20Lecture&type=folder&fields=id,title&limit=10')
-  const exact = found?.items?.find((x:any) => x.title === 'RevisionOS Lecture')
-  if (exact?.id) return exact.id as string
-  const created = await joplinRequest(baseUrl, token, '/folders', { method: 'POST', body: JSON.stringify({ title: 'RevisionOS Lecture' }) })
-  return created.id as string
+  // La liste /folders est plus fiable que /search pour retrouver un carnet Joplin.
+  try {
+    const folders = await joplinRequest(baseUrl, token, '/folders?fields=id,title&limit=100')
+    const items = Array.isArray(folders) ? folders : (folders?.items || [])
+    const exact = items.find((x:any) => x?.title === 'RevisionOS Lecture')
+    if (exact?.id) return exact.id as string
+  } catch {}
+
+  try {
+    const created = await joplinRequest(baseUrl, token, '/folders', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'RevisionOS Lecture' }),
+    })
+    return created?.id ? String(created.id) : ''
+  } catch {
+    // Joplin autorise aussi une note à la racine. Ne pas bloquer la création.
+    return ''
+  }
 }
 
 export async function GET(request: Request) {
@@ -42,15 +55,17 @@ export async function POST(request: Request) {
   if (!body?.title?.trim()) return NextResponse.json({ error: 'Titre requis' }, { status: 400 })
   try {
     const parentId = body.parent_id || await revisionNotebook(cfg.baseUrl!, cfg.token!)
+    const payload: Record<string, unknown> = {
+      title: body.title.trim(),
+      body: body.body || '',
+      source_url: body.source_url || '',
+      source_application: 'RevisionOS',
+    }
+    if (parentId) payload.parent_id = parentId
+
     const note = await joplinRequest(cfg.baseUrl!, cfg.token!, '/notes', {
       method: 'POST',
-      body: JSON.stringify({
-        parent_id: parentId,
-        title: body.title.trim(),
-        body: body.body || '',
-        source_url: body.source_url || '',
-        source_application: 'RevisionOS',
-      }),
+      body: JSON.stringify(payload),
     })
     return NextResponse.json(note, { status: 201 })
   } catch (e:any) {
