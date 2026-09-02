@@ -5,14 +5,15 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Library, Scale, Landmark, BriefcaseBusiness, Cpu, BookOpen,
   Highlighter, StickyNote, Target, CircleHelp, GalleryVerticalEnd, CalendarDays,
-  FolderKanban, CheckSquare, Cloud, Shield, Settings
+  FolderKanban, CheckSquare, Cloud, Shield, Settings, FolderTree
 } from "lucide-react";
 
 const groups = [
   {
-    title: "Bibliothèque documentaire",
+    title: "Gestion documentaire",
     items: [
-      ["/library", "Tous les PDF", Library],
+      ["/library", "Bibliothèque PDF", Library],
+      ["/categories", "Catégories", FolderTree],
       ["/library?rubrique=douane", "Douane", Landmark],
       ["/library?rubrique=droit", "Droit", Scale],
       ["/library?rubrique=gestion", "Gestion", BriefcaseBusiness],
@@ -52,10 +53,10 @@ const groups = [
 export default function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="fixed inset-y-0 left-0 w-72 overflow-y-auto border-r border-zinc-200 bg-zinc-950 p-4 text-zinc-100">
+    <aside className="fixed inset-y-0 left-0 w-72 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-4 text-zinc-100">
       <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
         <div className="text-xl font-bold tracking-tight">RevisionOS</div>
-        <div className="mt-1 text-xs text-zinc-400">Bibliothèque juridique & douanière</div>
+        <div className="mt-1 text-xs text-zinc-400">Document Center · Droit & Douane</div>
       </div>
       <nav className="space-y-6">
         {groups.map((group) => (
@@ -66,7 +67,7 @@ export default function Sidebar() {
                 const base = href.split("?")[0];
                 const active = pathname === base && !href.includes("?");
                 return (
-                  <Link key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "bg-white text-zinc-950" : "text-zinc-300 hover:bg-white/10 hover:text-white"}`}>
+                  <Link key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "bg-white font-medium text-zinc-950 shadow-sm" : "text-zinc-300 hover:bg-white/10 hover:text-white"}`}>
                     <Icon size={18} />
                     <span>{label}</span>
                   </Link>
