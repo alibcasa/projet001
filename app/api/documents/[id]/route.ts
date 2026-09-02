@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+function safePdfName(title:string){const cleaned=title.replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,150);return `${cleaned||'document'}.pdf`}
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
@@ -22,7 +24,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: owned } = await supabase.from('documents').select('id').eq('id', id).eq('user_id', user.id).maybeSingle()
+  const { data: owned } = await supabase.from('documents').select('id,title,storage_path').eq('id', id).eq('user_id', user.id).maybeSingle()
   if (!owned) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 })
 
   const body = await request.json()
@@ -31,6 +33,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const title = String(body.title).trim()
     if (!title) return NextResponse.json({ error: 'Le nom du PDF est obligatoire' }, { status: 400 })
     updates.title = title
+    if (owned.storage_path && title !== owned.title) {
+      const targetName=safePdfName(title)
+      const list=await supabase.storage.from('documents').list(user.id,{search:targetName,limit:10})
+      const targetPath=list.data?.some(x=>x.name===targetName)?`${user.id}/${title.replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,130)}-${crypto.randomUUID().slice(0,8)}.pdf`:`${user.id}/${targetName}`
+      const moved=await supabase.storage.from('documents').move(owned.storage_path,targetPath)
+      if (!moved.error) updates.storage_path=targetPath
+    }
   }
   if (body.description !== undefined) updates.description = String(body.description || '').trim() || null
   if (body.language !== undefined) updates.language = String(body.language || '').trim() || null
