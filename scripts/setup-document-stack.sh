@@ -83,9 +83,24 @@ set_env JOPLIN_BASE_URL "http://127.0.0.1:41184"
 if [ "${INSTALL_JOPLIN:-1}" = 1 ]; then
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
     if [ ! -x "$HOME/.joplin/Joplin.AppImage" ] && ! command -v joplin-desktop >/dev/null 2>&1; then
-      warn "Installation de Joplin Desktop..."
+      warn "Préparation de Joplin Desktop..."
       if ! command -v wget >/dev/null 2>&1; then sudo apt update; sudo apt install -y wget; fi
-      wget -qO- https://raw.githubusercontent.com/laurent22/joplin/dev/Joplin_install_and_update.sh | bash
+      # Joplin est distribué en AppImage et requiert FUSE 2 sur Ubuntu.
+      if ! ldconfig -p 2>/dev/null | grep -q 'libfuse.so.2'; then
+        warn "Installation de la compatibilité FUSE requise par Joplin..."
+        sudo apt update
+        if apt-cache show libfuse2t64 >/dev/null 2>&1; then
+          sudo apt install -y libfuse2t64
+        elif apt-cache show libfuse2 >/dev/null 2>&1; then
+          sudo apt install -y libfuse2
+        else
+          sudo apt install -y fuse libfuse2
+        fi
+      fi
+      warn "Installation de Joplin Desktop..."
+      if ! wget -qO- https://raw.githubusercontent.com/laurent22/joplin/dev/Joplin_install_and_update.sh | bash; then
+        fail "Installation de Joplin impossible après installation de FUSE."
+      fi
     fi
     info "Joplin Desktop installé. RevisionOS demandera l'autorisation API depuis l'écran Notes."
   else
