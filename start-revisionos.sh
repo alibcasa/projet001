@@ -96,7 +96,7 @@ info "Docker prêt"
 
 run_supabase(){
   local args="$*"
-  sudo -E env "PATH=$PATH" bash -lc "cd '$APP' && npx --yes supabase@latest $args"
+  sudo env "PATH=$PATH" bash -lc "cd '$APP' && npx --yes supabase@latest $args"
   [ ! -d "$APP/supabase" ] || sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" || true
 }
 
@@ -161,7 +161,6 @@ else
   warn "Supabase cloud détecté sans SUPABASE_DB_URL : migrations cloud non appliquées automatiquement."
 fi
 
-# Compte RevisionOS local : mot de passe connu et réappliqué à chaque exécution.
 if [ -n "$SUPABASE_DB_URL" ]; then
   service_key="$(get_env SUPABASE_SERVICE_ROLE_KEY)"
   api_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
@@ -192,7 +191,6 @@ SQL
   info "Super-admin RevisionOS prêt"
 fi
 
-# Ollama local pour génération QCM.
 if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
   if ! command -v ollama >/dev/null 2>&1; then
     warn "Installation d'Ollama..."
@@ -211,7 +209,6 @@ if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
   info "Ollama prêt avec $OLLAMA_MODEL"
 fi
 
-# OpenProject Community local + API automatique.
 if [ "${INSTALL_OPENPROJECT:-1}" = "1" ]; then
   warn "Configuration d'OpenProject Community local..."
   if [ ! -s .openproject-secret ]; then
@@ -219,31 +216,46 @@ if [ "${INSTALL_OPENPROJECT:-1}" = "1" ]; then
     chmod 600 .openproject-secret
   fi
   op_secret="$(cat .openproject-secret)"
-  sudo docker volume create revisionos-openproject-data >/dev/null
-  if ! sudo docker inspect "$OPENPROJECT_CONTAINER" >/dev/null 2>&1; then
-    sudo docker run -d --name "$OPENPROJECT_CONTAINER" --restart unless-stopped \
-      -p "127.0.0.1:${OPENPROJECT_PORT}:80" \
-      -v revisionos-openproject-data:/var/openproject/assets \
-      -e "SECRET_KEY_BASE=$op_secret" \
-      -e "OPENPROJECT_HOST__NAME=localhost:${OPENPROJECT_PORT}" \
-      -e "OPENPROJECT_HTTPS=false" \
-      -e "OPENPROJECT_DEFAULT__LANGUAGE=fr" \
-      -e "OPENPROJECT_SEED__ADMIN__USER__PASSWORD=$OPENPROJECT_ADMIN_PASSWORD" \
-      -e "OPENPROJECT_SEED__ADMIN__USER__PASSWORD__RESET=false" \
-      openproject/openproject:17 >/dev/null
-  else
-    sudo docker start "$OPENPROJECT_CONTAINER" >/dev/null || true
+
+  sudo docker volume create revisionos-openproject-pgdata >/dev/null
+  sudo docker volume create revisionos-openproject-assets >/dev/null
+
+  if sudo docker inspect "$OPENPROJECT_CONTAINER" >/dev/null 2>&1; then
+    sudo docker rm -f "$OPENPROJECT_CONTAINER" >/dev/null 2>&1 || true
   fi
 
-  warn "Attente du démarrage OpenProject..."
-  op_ready=0
-  for _ in $(seq 1 90); do
-    if curl -fsS "http://127.0.0.1:${OPENPROJECT_PORT}/api/v3" >/dev/null 2>&1; then op_ready=1; break; fi
-    sleep 2
-  done
-  [ "$op_ready" = "1" ] || fail "OpenProject n'a pas démarré dans le délai prévu."
+  sudo docker run -d -t --name "$OPENPROJECT_CONTAINER" --restart unless-stopped \
+    -p "127.0.0.1:${OPENPROJECT_PORT}:80" \
+    -v revisionos-openproject-pgdata:/var/openproject/pgdata \
+    -v revisionos-openproject-assets:/var/openproject/assets \
+    -e "SECRET_KEY_BASE=$op_secret" \
+    -e "OPENPROJECT_HOST__NAME=localhost:${OPENPROJECT_PORT}" \
+    -e "OPENPROJECT_HTTPS=false" \
+    -e "OPENPROJECT_DEFAULT__LANGUAGE=fr" \
+    openproject/openproject:17 >/dev/null
 
-  # Réinitialiser le mot de passe admin et générer un jeton API si nécessaire.
+  warn "Attente du démarrage OpenProject (jusqu'à 10 minutes au premier lancement)..."
+  op_ready=0
+  for i in $(seq 1 120); do
+    state="$(sudo docker inspect -f '{{.State.Status}}' "$OPENPROJECT_CONTAINER" 2>/dev/null || true)"
+    if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
+      printf '\n--- Logs OpenProject ---\n' >&2
+      sudo docker logs --tail 120 "$OPENPROJECT_CONTAINER" >&2 || true
+      fail "Le conteneur OpenProject s'est arrêté pendant le démarrage."
+    fi
+    if curl -fsS "http://127.0.0.1:${OPENPROJECT_PORT}/api/v3" >/dev/null 2>&1; then
+      op_ready=1
+      break
+    fi
+    if [ $((i % 12)) -eq 0 ]; then warn "OpenProject démarre encore... $((i*5)) secondes"; fi
+    sleep 5
+  done
+  if [ "$op_ready" != "1" ]; then
+    printf '\n--- Logs OpenProject ---\n' >&2
+    sudo docker logs --tail 120 "$OPENPROJECT_CONTAINER" >&2 || true
+    fail "OpenProject n'a pas répondu après 10 minutes."
+  fi
+
   sudo docker exec -e "REVISIONOS_OP_PASSWORD=$OPENPROJECT_ADMIN_PASSWORD" "$OPENPROJECT_CONTAINER" bash -lc \
     "RAILS_ENV=production bundle exec rails runner 'u=User.find_by(login: \"admin\"); p=ENV.fetch(\"REVISIONOS_OP_PASSWORD\"); u.password=p; u.password_confirmation=p; u.force_password_change=false; u.save!'" >/dev/null
 
