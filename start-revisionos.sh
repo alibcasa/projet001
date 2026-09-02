@@ -92,7 +92,25 @@ fi
 sudo systemctl enable --now docker
 if ! getent group docker >/dev/null 2>&1; then sudo groupadd docker; fi
 sudo usermod -aG docker "$USER" >/dev/null 2>&1 || true
-run_docker_group(){ sg docker -c "cd '$APP' && $*"; }
+
+# Certaines installations Ubuntu minimales n'ont pas la commande sg.
+# Elle est fournie par le paquet login. On l'installe automatiquement si nécessaire.
+if ! command -v sg >/dev/null 2>&1; then
+  warn "Installation de l'outil système sg requis pour Docker..."
+  sudo apt update
+  sudo apt install -y login
+fi
+
+run_docker_group(){
+  if command -v sg >/dev/null 2>&1; then
+    sg docker -c "cd '$APP' && $*"
+  else
+    # Fallback robuste: exécuter la CLI Supabase avec privilèges Docker,
+    # puis rendre au compte utilisateur les fichiers éventuellement créés.
+    sudo -E bash -lc "cd '$APP' && $*"
+    sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" 2>/dev/null || true
+  fi
+}
 
 # Supabase local: utilisé automatiquement si aucune vraie configuration cloud n'est fournie
 supabase_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
@@ -134,7 +152,6 @@ if [ -n "${SUPABASE_DB_URL:-}" ]; then
   warn "Préparation de la base RevisionOS..."
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c "create table if not exists public.revisionos_migrations(name text primary key, applied_at timestamptz not null default now());" >/dev/null
 
-  # Compatibilité avec une ancienne installation qui aurait déjà créé le schéma principal.
   if [ "$(psql "$SUPABASE_DB_URL" -Atc "select case when to_regclass('public.documents') is not null and to_regclass('public.keynotes') is not null and to_regclass('public.quizzes') is not null then 1 else 0 end")" = "1" ]; then
     psql "$SUPABASE_DB_URL" -c "insert into public.revisionos_migrations(name) values('001_init') on conflict do nothing" >/dev/null
   fi
