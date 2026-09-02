@@ -6,7 +6,11 @@ BRANCH="revisionos-v1"
 APP="${REVISIONOS_DIR:-$HOME/Downloads/RevisionOS_V1}"
 PORT="${PORT:-3000}"
 ADMIN_EMAIL="${REVISIONOS_ADMIN_EMAIL:-admin@revisionos.local}"
+ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-RevisionOS-Admin-2026!}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:4b}"
+OPENPROJECT_PORT="${OPENPROJECT_PORT:-8081}"
+OPENPROJECT_ADMIN_PASSWORD="${OPENPROJECT_ADMIN_PASSWORD:-RevisionOS-OpenProject-2026!}"
+OPENPROJECT_CONTAINER="revisionos-openproject"
 
 green='\033[0;32m'; yellow='\033[1;33m'; red='\033[0;31m'; reset='\033[0m'
 info(){ printf "${green}[OK]${reset} %s\n" "$*"; }
@@ -44,7 +48,7 @@ if [ -d "$APP/.git" ]; then
   git -C "$APP" fetch --prune origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
   git -C "$APP" checkout -B "$BRANCH" "origin/$BRANCH"
   git -C "$APP" reset --hard "origin/$BRANCH"
-  git -C "$APP" clean -fd -e .env.local -e .revisionos-admin -e supabase
+  git -C "$APP" clean -fd -e .env.local -e .revisionos-admin -e .openproject-secret -e .openproject-token -e supabase
 else
   rm -rf "$APP"
   mkdir -p "$(dirname "$APP")"
@@ -69,12 +73,13 @@ set_env(){
 }
 get_env(){ grep -m1 "^$1=" .env.local 2>/dev/null | cut -d= -f2- || true; }
 
-set_env AI_PROVIDER "${AI_PROVIDER:-ollama}"
+set_env AI_PROVIDER "ollama"
 set_env OLLAMA_BASE_URL "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 set_env OLLAMA_MODEL "$OLLAMA_MODEL"
 set_env NEXT_PUBLIC_APP_URL "http://localhost:$PORT"
 set_env GOOGLE_REDIRECT_URI "http://localhost:$PORT/api/integrations/google/callback"
 set_env MICROSOFT_REDIRECT_URI "http://localhost:$PORT/api/integrations/microsoft/callback"
+set_env OPENPROJECT_URL "http://127.0.0.1:$OPENPROJECT_PORT"
 
 warn "Installation des dépendances npm..."
 npm install --no-audit --no-fund
@@ -92,58 +97,36 @@ info "Docker prêt"
 run_supabase(){
   local args="$*"
   sudo -E env "PATH=$PATH" bash -lc "cd '$APP' && npx --yes supabase@latest $args"
-  if [ -d "$APP/supabase" ]; then
-    sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" || true
-  fi
+  [ ! -d "$APP/supabase" ] || sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" || true
+}
+
+refresh_supabase_env(){
+  local status_env
+  status_env="$(run_supabase status -o env)"
+  read_status(){ printf '%s\n' "$status_env" | awk -F= -v k="$1" '$1==k{v=substr($0,index($0,"=")+1); gsub(/^\"|\"$/,"",v); print v; exit}'; }
+  local_api="$(read_status API_URL)"
+  local_anon="$(read_status ANON_KEY)"; [ -n "$local_anon" ] || local_anon="$(read_status PUBLISHABLE_KEY)"
+  local_service="$(read_status SERVICE_ROLE_KEY)"; [ -n "$local_service" ] || local_service="$(read_status SECRET_KEY)"
+  local_db="$(read_status DB_URL)"
+  [ -n "$local_api" ] || fail "API_URL Supabase local introuvable."
+  [ -n "$local_anon" ] || fail "Clé publique Supabase locale introuvable."
+  [ -n "$local_service" ] || fail "Clé service Supabase locale introuvable."
+  [ -n "$local_db" ] || fail "DB_URL Supabase local introuvable."
+  set_env NEXT_PUBLIC_SUPABASE_URL "$local_api"
+  set_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$local_anon"
+  set_env SUPABASE_SERVICE_ROLE_KEY "$local_service"
+  SUPABASE_DB_URL="$local_db"
 }
 
 supabase_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
 supabase_key="$(get_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"
 SUPABASE_DB_URL="${SUPABASE_DB_URL:-}"
-
-# Une URL locale sauvegardée doit être réutilisée avec une DB_URL fraîche.
-if [[ "$supabase_url" == http://127.0.0.1:* || "$supabase_url" == http://localhost:* ]]; then
-  warn "Réutilisation de Supabase local..."
-  if [ ! -f supabase/config.toml ]; then
-    run_supabase init
-  fi
+if [[ "$supabase_url" == http://127.0.0.1:* || "$supabase_url" == http://localhost:* || -z "$supabase_url" || -z "$supabase_key" ]]; then
+  warn "Démarrage/configuration de Supabase local..."
+  [ -f supabase/config.toml ] || run_supabase init
   run_supabase start
-  status_env="$(run_supabase status -o env)"
-  read_status(){ printf '%s\n' "$status_env" | awk -F= -v k="$1" '$1==k{v=substr($0,index($0,"=")+1); gsub(/^\"|\"$/,"",v); print v; exit}'; }
-  local_api="$(read_status API_URL)"
-  local_anon="$(read_status ANON_KEY)"
-  local_service="$(read_status SERVICE_ROLE_KEY)"
-  local_db="$(read_status DB_URL)"
-  [ -n "$local_api" ] || fail "API_URL Supabase local introuvable."
-  [ -n "$local_anon" ] || fail "ANON_KEY Supabase local introuvable."
-  [ -n "$local_service" ] || fail "SERVICE_ROLE_KEY Supabase local introuvable."
-  [ -n "$local_db" ] || fail "DB_URL Supabase local introuvable."
-  set_env NEXT_PUBLIC_SUPABASE_URL "$local_api"
-  set_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$local_anon"
-  set_env SUPABASE_SERVICE_ROLE_KEY "$local_service"
-  SUPABASE_DB_URL="$local_db"
-elif [ -z "$supabase_url" ] || [ -z "$supabase_key" ]; then
-  warn "Configuration Supabase locale automatique..."
-  if [ ! -f supabase/config.toml ]; then
-    run_supabase init
-  fi
-  warn "Démarrage de Supabase local (premier lancement : téléchargement des images Docker)..."
-  run_supabase start
-  status_env="$(run_supabase status -o env)"
-  read_status(){ printf '%s\n' "$status_env" | awk -F= -v k="$1" '$1==k{v=substr($0,index($0,"=")+1); gsub(/^\"|\"$/,"",v); print v; exit}'; }
-  local_api="$(read_status API_URL)"
-  local_anon="$(read_status ANON_KEY)"
-  local_service="$(read_status SERVICE_ROLE_KEY)"
-  local_db="$(read_status DB_URL)"
-  [ -n "$local_api" ] || fail "API_URL Supabase local introuvable."
-  [ -n "$local_anon" ] || fail "ANON_KEY Supabase local introuvable."
-  [ -n "$local_service" ] || fail "SERVICE_ROLE_KEY Supabase local introuvable."
-  [ -n "$local_db" ] || fail "DB_URL Supabase local introuvable."
-  set_env NEXT_PUBLIC_SUPABASE_URL "$local_api"
-  set_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$local_anon"
-  set_env SUPABASE_SERVICE_ROLE_KEY "$local_service"
-  SUPABASE_DB_URL="$local_db"
-  info "Supabase local prêt: $local_api"
+  refresh_supabase_env
+  info "Supabase local prêt: $(get_env NEXT_PUBLIC_SUPABASE_URL)"
 else
   info "Configuration Supabase cloud existante détectée"
 fi
@@ -156,14 +139,11 @@ fi
 if [ -n "$SUPABASE_DB_URL" ]; then
   warn "Préparation de la base RevisionOS..."
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c "create table if not exists public.revisionos_migrations(name text primary key, applied_at timestamptz not null default now());" >/dev/null
-
   if [ "$(psql "$SUPABASE_DB_URL" -Atc "select case when to_regclass('public.documents') is not null and to_regclass('public.keynotes') is not null and to_regclass('public.quizzes') is not null then 1 else 0 end")" = "1" ]; then
     psql "$SUPABASE_DB_URL" -c "insert into public.revisionos_migrations(name) values('001_init') on conflict do nothing" >/dev/null
   fi
-
   apply_sql(){
-    local id="$1" file="$2"
-    local done
+    local id="$1" file="$2" done
     done="$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from public.revisionos_migrations where name='$id'")"
     if [ "$done" = "0" ]; then
       warn "Migration $id..."
@@ -171,17 +151,17 @@ if [ -n "$SUPABASE_DB_URL" ]; then
       psql "$SUPABASE_DB_URL" -c "insert into public.revisionos_migrations(name) values('$id') on conflict do nothing" >/dev/null
     fi
   }
-
   apply_sql 001_init database/migrations/001_init.sql
   apply_sql 002_complete_app database/migrations/002_complete_app.sql
   apply_sql 003_security database/migrations/003_security.sql
+  [ ! -f database/migrations/004_local_features.sql ] || apply_sql 004_local_features database/migrations/004_local_features.sql
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/seed/001_categories.sql >/dev/null
   info "Base de données et Storage PDF prêts"
 else
   warn "Supabase cloud détecté sans SUPABASE_DB_URL : migrations cloud non appliquées automatiquement."
 fi
 
-# Compte super-admin local. Les variables psql sont injectées via stdin, pas via -c.
+# Compte RevisionOS local : mot de passe connu et réappliqué à chaque exécution.
 if [ -n "$SUPABASE_DB_URL" ]; then
   service_key="$(get_env SUPABASE_SERVICE_ROLE_KEY)"
   api_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
@@ -189,34 +169,30 @@ if [ -n "$SUPABASE_DB_URL" ]; then
 select id from auth.users where email = :'email' limit 1;
 SQL
 )"
-
   if [ -z "$admin_id" ]; then
-    if command -v openssl >/dev/null 2>&1; then
-      ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9@#%+=' | head -c 20)}"
-    else
-      ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-RevisionOS-Local-2026!}"
-    fi
-    warn "Création du compte super-admin local..."
+    warn "Création du compte super-admin RevisionOS..."
     curl -fsS -X POST "$api_url/auth/v1/admin/users" \
-      -H "apikey: $service_key" \
-      -H "Authorization: Bearer $service_key" \
-      -H "Content-Type: application/json" \
+      -H "apikey: $service_key" -H "Authorization: Bearer $service_key" -H "Content-Type: application/json" \
       -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"email_confirm\":true,\"user_metadata\":{\"full_name\":\"RevisionOS Admin\"}}" >/dev/null
     sleep 1
-    psql "$SUPABASE_DB_URL" -v email="$ADMIN_EMAIL" >/dev/null <<'SQL'
-update public.profiles set role='super_admin' where email = :'email';
+    admin_id="$(psql "$SUPABASE_DB_URL" -At -v email="$ADMIN_EMAIL" <<'SQL'
+select id from auth.users where email = :'email' limit 1;
 SQL
-    printf 'EMAIL=%s\nPASSWORD=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > .revisionos-admin
-    chmod 600 .revisionos-admin
-    info "Compte super-admin créé"
+)"
   else
-    psql "$SUPABASE_DB_URL" -v email="$ADMIN_EMAIL" >/dev/null <<'SQL'
+    curl -fsS -X PUT "$api_url/auth/v1/admin/users/$admin_id" \
+      -H "apikey: $service_key" -H "Authorization: Bearer $service_key" -H "Content-Type: application/json" \
+      -d "{\"password\":\"$ADMIN_PASSWORD\",\"email_confirm\":true}" >/dev/null
+  fi
+  psql "$SUPABASE_DB_URL" -v email="$ADMIN_EMAIL" >/dev/null <<'SQL'
 update public.profiles set role='super_admin' where email = :'email';
 SQL
-    info "Compte super-admin local déjà présent"
-  fi
+  printf 'EMAIL=%s\nPASSWORD=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > .revisionos-admin
+  chmod 600 .revisionos-admin
+  info "Super-admin RevisionOS prêt"
 fi
 
+# Ollama local pour génération QCM.
 if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
   if ! command -v ollama >/dev/null 2>&1; then
     warn "Installation d'Ollama..."
@@ -231,7 +207,55 @@ if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
     warn "Téléchargement du modèle IA $OLLAMA_MODEL..."
     ollama pull "$OLLAMA_MODEL"
   fi
+  curl -fsS http://127.0.0.1:11434/api/tags >/dev/null || fail "Ollama ne répond pas."
   info "Ollama prêt avec $OLLAMA_MODEL"
+fi
+
+# OpenProject Community local + API automatique.
+if [ "${INSTALL_OPENPROJECT:-1}" = "1" ]; then
+  warn "Configuration d'OpenProject Community local..."
+  if [ ! -s .openproject-secret ]; then
+    openssl rand -hex 64 > .openproject-secret
+    chmod 600 .openproject-secret
+  fi
+  op_secret="$(cat .openproject-secret)"
+  sudo docker volume create revisionos-openproject-data >/dev/null
+  if ! sudo docker inspect "$OPENPROJECT_CONTAINER" >/dev/null 2>&1; then
+    sudo docker run -d --name "$OPENPROJECT_CONTAINER" --restart unless-stopped \
+      -p "127.0.0.1:${OPENPROJECT_PORT}:80" \
+      -v revisionos-openproject-data:/var/openproject/assets \
+      -e "SECRET_KEY_BASE=$op_secret" \
+      -e "OPENPROJECT_HOST__NAME=localhost:${OPENPROJECT_PORT}" \
+      -e "OPENPROJECT_HTTPS=false" \
+      -e "OPENPROJECT_DEFAULT__LANGUAGE=fr" \
+      -e "OPENPROJECT_SEED__ADMIN__USER__PASSWORD=$OPENPROJECT_ADMIN_PASSWORD" \
+      -e "OPENPROJECT_SEED__ADMIN__USER__PASSWORD__RESET=false" \
+      openproject/openproject:17 >/dev/null
+  else
+    sudo docker start "$OPENPROJECT_CONTAINER" >/dev/null || true
+  fi
+
+  warn "Attente du démarrage OpenProject..."
+  op_ready=0
+  for _ in $(seq 1 90); do
+    if curl -fsS "http://127.0.0.1:${OPENPROJECT_PORT}/api/v3" >/dev/null 2>&1; then op_ready=1; break; fi
+    sleep 2
+  done
+  [ "$op_ready" = "1" ] || fail "OpenProject n'a pas démarré dans le délai prévu."
+
+  # Réinitialiser le mot de passe admin et générer un jeton API si nécessaire.
+  sudo docker exec -e "REVISIONOS_OP_PASSWORD=$OPENPROJECT_ADMIN_PASSWORD" "$OPENPROJECT_CONTAINER" bash -lc \
+    "RAILS_ENV=production bundle exec rails runner 'u=User.find_by(login: \"admin\"); p=ENV.fetch(\"REVISIONOS_OP_PASSWORD\"); u.password=p; u.password_confirmation=p; u.force_password_change=false; u.save!'" >/dev/null
+
+  if [ ! -s .openproject-token ]; then
+    op_token="$(sudo docker exec "$OPENPROJECT_CONTAINER" bash -lc "RAILS_ENV=production bundle exec rails runner 'u=User.find_by(login: \"admin\"); puts Token::API.create_and_return_value(u)'" | grep -o 'opapi-[A-Za-z0-9_-]*' | tail -n1)"
+    [ -n "$op_token" ] || fail "Impossible de générer le jeton API OpenProject."
+    printf '%s\n' "$op_token" > .openproject-token
+    chmod 600 .openproject-token
+  fi
+  set_env OPENPROJECT_URL "http://127.0.0.1:$OPENPROJECT_PORT"
+  set_env OPENPROJECT_API_TOKEN "$(cat .openproject-token)"
+  info "OpenProject prêt sur http://localhost:$OPENPROJECT_PORT"
 fi
 
 warn "Vérification TypeScript..."
@@ -249,12 +273,13 @@ printf '\n====================================================\n'
 printf ' RevisionOS prêt\n'
 printf ' Commit   : %s\n' "$local_sha"
 printf ' Dossier  : %s\n' "$APP"
-printf ' Supabase : %s\n' "$supabase_url"
 printf ' Site     : http://localhost:%s\n' "$PORT"
-if [ -f .revisionos-admin ]; then
-  printf ' Admin    : %s\n' "$(grep '^EMAIL=' .revisionos-admin | cut -d= -f2-)"
-  printf ' Mot passe: %s\n' "$(grep '^PASSWORD=' .revisionos-admin | cut -d= -f2-)"
-fi
+printf ' Admin RevisionOS : %s\n' "$ADMIN_EMAIL"
+printf ' MP RevisionOS    : %s\n' "$ADMIN_PASSWORD"
+printf ' OpenProject      : http://localhost:%s\n' "$OPENPROJECT_PORT"
+printf ' Admin OpenProject: admin\n'
+printf ' MP OpenProject   : %s\n' "$OPENPROJECT_ADMIN_PASSWORD"
+printf ' Ollama           : %s\n' "$OLLAMA_MODEL"
 printf '====================================================\n\n'
 
 if command -v xdg-open >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
