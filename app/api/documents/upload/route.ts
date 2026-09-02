@@ -17,7 +17,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const form = await request.formData()
   const file = form.get('file') as File | null
-  if (!file || file.type !== 'application/pdf') return NextResponse.json({ error: 'PDF requis' }, { status: 400 })
+  const relativePath = String(form.get('relativePath') || file?.name || '').replace(/^\/+/, '').slice(0,500)
+  if (!file || !(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) return NextResponse.json({ error: 'PDF requis' }, { status: 400 })
   if (file.size > 200 * 1024 * 1024) return NextResponse.json({ error: 'Taille maximale: 200 Mo' }, { status: 400 })
 
   const originalTitle = file.name.replace(/\.pdf$/i, '').trim()
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
 
   try {
     const extracted = await extractPdf(bytes)
-    const classification = classifyText(`${file.name}\n${extracted.text.slice(0, 30000)}`)
+    const classification = classifyText(`${relativePath}\n${file.name}\n${extracted.text.slice(0, 30000)}`)
     let metadata: Awaited<ReturnType<typeof extractDocumentMetadata>> | null = null
     if (extracted.text.trim().length >= 120) {
       try { metadata = await extractDocumentMetadata(file.name, extracted.text) } catch { metadata = null }
@@ -61,18 +62,21 @@ export async function POST(request: Request) {
     const allTags = Array.from(new Set([...(metadata?.tags || []), ...classification.tags])).slice(0,20)
 
     const descriptionParts = [metadata?.documentType, metadata?.institution, metadata?.year ? String(metadata.year) : ''].filter(Boolean)
+    const sourceType = relativePath && relativePath !== file.name
+      ? `folder:${relativePath}`
+      : (useAiTitle ? `upload:${file.name}` : 'upload')
     const { data: doc, error } = await supabase.from('documents').insert({
       user_id: user.id,
       title,
       storage_path: storagePath,
-      mime_type: file.type,
+      mime_type: file.type || 'application/pdf',
       file_size: file.size,
       total_pages: extracted.pages.length,
       language: metadata?.language || null,
       description: descriptionParts.length ? descriptionParts.join(' · ') : null,
       extracted_text: extracted.text,
       classification_confidence: confidence,
-      source_type: useAiTitle ? `upload:${file.name}` : 'upload',
+      source_type: sourceType,
     }).select().single()
     if (error) throw error
 
@@ -104,7 +108,7 @@ export async function POST(request: Request) {
       paperlessQueued=true
     } catch {}
 
-    return NextResponse.json({ document: doc, classification: { ...classification, categories, tags: allTags }, metadata, renamed: useAiTitle, originalName: file.name, paperlessQueued }, { status: 201 })
+    return NextResponse.json({ document: doc, classification: { ...classification, categories, tags: allTags }, metadata, renamed: useAiTitle, originalName: file.name, relativePath, paperlessQueued }, { status: 201 })
   } catch (error: any) {
     await supabase.storage.from('documents').remove([storagePath])
     return NextResponse.json({ error: error?.message || 'Extraction PDF impossible' }, { status: 500 })
