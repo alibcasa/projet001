@@ -5,7 +5,13 @@ node_modules
 .revisionos-admin
 .openproject-secret
 .openproject-token
+.paperless-secret
+.paperless-db-password
+.paperless-stack.env
+.paperless-admin
 supabase/.temp
+docker/paperless/consume/*
+!docker/paperless/consume/.gitkeep
 *.log
 .DS_Store
 coverage
