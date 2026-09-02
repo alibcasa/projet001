@@ -7,10 +7,10 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data, error } = await supabase
     .from('documents')
-    .select('*, reading_progress(*), document_categories(categories(id,name,slug)), document_tags(tags(id,name,slug))')
+    .select('*, reading_progress(*), document_categories(category_id,is_primary,categories(id,name,slug,parent_id)), document_tags(tags(id,name))')
     .order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  return NextResponse.json(data)
+  return NextResponse.json(data || [])
 }
 
 export async function POST(request: Request) {
