@@ -111,20 +111,41 @@ if [ "${INSTALL_OPENPROJECT:-1}" = 1 ]; then
   warn "Configuration d'OpenProject Community local..."
   if [ ! -s .openproject-secret ]; then openssl rand -hex 64 > .openproject-secret; chmod 600 .openproject-secret; fi
   op_secret="$(cat .openproject-secret)"; sudo docker volume create revisionos-openproject-pgdata >/dev/null; sudo docker volume create revisionos-openproject-assets >/dev/null
-  if sudo docker inspect "$OPENPROJECT_CONTAINER" >/dev/null 2>&1; then sudo docker rm -f "$OPENPROJECT_CONTAINER" >/dev/null 2>&1 || true; fi
-  sudo docker run -d -t --name "$OPENPROJECT_CONTAINER" --restart unless-stopped -p "127.0.0.1:${OPENPROJECT_PORT}:80" -v revisionos-openproject-pgdata:/var/openproject/pgdata -v revisionos-openproject-assets:/var/openproject/assets -e "SECRET_KEY_BASE=$op_secret" -e "OPENPROJECT_HOST__NAME=localhost:${OPENPROJECT_PORT}" -e "OPENPROJECT_HTTPS=false" -e "OPENPROJECT_DEFAULT__LANGUAGE=fr" openproject/openproject:17 >/dev/null
-  warn "Attente du démarrage OpenProject (jusqu'à 10 minutes au premier lancement)..."
+
+  if sudo docker inspect "$OPENPROJECT_CONTAINER" >/dev/null 2>&1; then
+    state="$(sudo docker inspect -f '{{.State.Status}}' "$OPENPROJECT_CONTAINER" 2>/dev/null || true)"
+    if [ "$state" != running ]; then
+      warn "Conteneur OpenProject existant détecté ($state), démarrage..."
+      sudo docker start "$OPENPROJECT_CONTAINER" >/dev/null
+    else
+      info "Conteneur OpenProject existant réutilisé"
+    fi
+  else
+    warn "Création initiale du conteneur OpenProject..."
+    sudo docker run -d -t --name "$OPENPROJECT_CONTAINER" --restart unless-stopped \
+      -p "127.0.0.1:${OPENPROJECT_PORT}:80" \
+      -v revisionos-openproject-pgdata:/var/openproject/pgdata \
+      -v revisionos-openproject-assets:/var/openproject/assets \
+      -e "SECRET_KEY_BASE=$op_secret" \
+      -e "OPENPROJECT_HOST__NAME=localhost:${OPENPROJECT_PORT}" \
+      -e "OPENPROJECT_HTTPS=false" \
+      -e "OPENPROJECT_DEFAULT__LANGUAGE=fr" \
+      openproject/openproject:17 >/dev/null
+  fi
+
+  warn "Vérification d'OpenProject..."
   op_ready=0
   for i in $(seq 1 120); do
     state="$(sudo docker inspect -f '{{.State.Status}}' "$OPENPROJECT_CONTAINER" 2>/dev/null || true)"
     if [ "$state" = exited ] || [ "$state" = dead ]; then sudo docker logs --tail 120 "$OPENPROJECT_CONTAINER" >&2 || true; fail "Le conteneur OpenProject s'est arrêté pendant le démarrage."; fi
-    http_code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: localhost:${OPENPROJECT_PORT}" "http://127.0.0.1:${OPENPROJECT_PORT}/api/v3" 2>/dev/null || true)"
-    case "$http_code" in 200|301|302|401|403) op_ready=1; break;; esac
+    http_code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: localhost:${OPENPROJECT_PORT}" "http://127.0.0.1:${OPENPROJECT_PORT}/login" 2>/dev/null || true)"
+    case "$http_code" in 200|301|302|303) op_ready=1; break;; esac
     if [ $((i % 12)) -eq 0 ]; then warn "OpenProject démarre encore... $((i*5)) secondes (HTTP ${http_code:-000})"; fi
     sleep 5
   done
   if [ "$op_ready" != 1 ]; then sudo docker logs --tail 120 "$OPENPROJECT_CONTAINER" >&2 || true; fail "OpenProject n'a pas répondu correctement après 10 minutes."; fi
   info "OpenProject HTTP prêt"
+
   sudo docker exec -e "REVISIONOS_OP_PASSWORD=$OPENPROJECT_ADMIN_PASSWORD" "$OPENPROJECT_CONTAINER" bash -lc "RAILS_ENV=production bundle exec rails runner 'u=User.find_by(login: \"admin\"); p=ENV.fetch(\"REVISIONOS_OP_PASSWORD\"); u.password=p; u.password_confirmation=p; u.force_password_change=false; u.save!'" >/dev/null
   if [ ! -s .openproject-token ]; then
     op_token="$(sudo docker exec "$OPENPROJECT_CONTAINER" bash -lc "RAILS_ENV=production bundle exec rails runner 'u=User.find_by(login: \"admin\"); puts Token::API.create_and_return_value(u)'" | grep -o 'opapi-[A-Za-z0-9_-]*' | tail -n1)"
