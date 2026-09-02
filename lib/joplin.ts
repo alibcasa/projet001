@@ -2,7 +2,8 @@ export type JoplinConfig = { baseUrl: string; token?: string; authToken?: string
 
 export async function discoverJoplin() {
   const configured = process.env.JOPLIN_BASE_URL?.replace(/\/$/, '')
-  const candidates = configured ? [configured] : Array.from({ length: 11 }, (_, i) => `http://127.0.0.1:${41184 + i}`)
+  const defaults = Array.from({ length: 11 }, (_, i) => `http://127.0.0.1:${41184 + i}`)
+  const candidates = Array.from(new Set([...(configured ? [configured] : []), ...defaults]))
   for (const baseUrl of candidates) {
     try {
       const r = await fetch(`${baseUrl}/ping`, { cache: 'no-store', signal: AbortSignal.timeout(1200) })
@@ -30,6 +31,7 @@ export async function joplinRequest(baseUrl: string, token: string, path: string
     ...init,
     headers: { 'content-type': 'application/json', ...(init.headers || {}) },
     cache: 'no-store',
+    signal: init.signal || AbortSignal.timeout(5000),
   })
   if (!r.ok) {
     const text = await r.text().catch(() => '')
