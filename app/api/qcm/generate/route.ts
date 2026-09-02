@@ -3,4 +3,49 @@ import { createClient } from '@/lib/supabase/server'
 import { generateQuestions } from '@/lib/ai/provider'
 
 export const runtime='nodejs'
-export async function POST(request:Request){const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});const {documentIds,count=10,difficulty='mixed'}=await request.json();if(!Array.isArray(documentIds)||!documentIds.length)return NextResponse.json({error:'Sélectionnez au moins un PDF'},{status:400});const {data:pages,error}=await supabase.from('document_pages').select('document_id,page_number,content').in('document_id',documentIds).order('page_number');if(error)return NextResponse.json({error:error.message},{status:400});const context=(pages||[]).map(p=>`[DOC:${p.document_id} PAGE:${p.page_number}] ${p.content}`).join('\n');if(!context.trim())return NextResponse.json({error:'Aucun texte extrait'},{status:400});try{const generated=await generateQuestions(context,Math.min(100,Math.max(1,Number(count))),difficulty);const {data:quiz,error:qerr}=await supabase.from('quizzes').insert({user_id:user.id,title:`QCM ${new Date().toLocaleDateString('fr-FR')}`}).select().single();if(qerr)throw qerr;for(const q of generated){const docId=documentIds[0];const {data:question,error:e1}=await supabase.from('questions').insert({quiz_id:quiz.id,document_id:docId,question_text:q.question,source_pages:q.sourcePages||[],explanation:q.explanation,difficulty:q.difficulty||difficulty,validation_status:'pending',generated_by:'ai'}).select().single();if(e1)continue;await supabase.from('question_choices').insert(q.choices.map((choice:string,i:number)=>({question_id:question.id,choice_text:choice,is_correct:i===q.correctIndex})));}return NextResponse.json({quizId:quiz.id,questions:generated})}catch(e:any){return NextResponse.json({error:e.message||'Génération impossible'},{status:500})}}
+
+export async function POST(request:Request){
+  const supabase=await createClient()
+  const {data:{user}}=await supabase.auth.getUser()
+  if(!user)return NextResponse.json({error:'Unauthorized'},{status:401})
+
+  const {documentIds,count=10,difficulty='mixed'}=await request.json()
+  if(!Array.isArray(documentIds)||!documentIds.length)return NextResponse.json({error:'Sélectionnez au moins un PDF'},{status:400})
+
+  const {data:ownedDocs}=await supabase.from('documents').select('id').in('id',documentIds).eq('user_id',user.id)
+  const allowedIds=(ownedDocs||[]).map(d=>d.id)
+  if(!allowedIds.length)return NextResponse.json({error:'Aucun PDF accessible'},{status:403})
+
+  const {data:pages,error}=await supabase.from('document_pages').select('document_id,page_number,content').in('document_id',allowedIds).order('page_number')
+  if(error)return NextResponse.json({error:error.message},{status:400})
+  const context=(pages||[]).map(p=>`[DOC:${p.document_id} PAGE:${p.page_number}] ${p.content}`).join('\n')
+  if(!context.trim())return NextResponse.json({error:'Aucun texte extrait'},{status:400})
+
+  try{
+    const generated=await generateQuestions(context,Math.min(100,Math.max(1,Number(count))),difficulty)
+    const {data:quiz,error:qerr}=await supabase.from('quizzes').insert({user_id:user.id,title:`QCM ${new Date().toLocaleDateString('fr-FR')}`}).select().single()
+    if(qerr)throw qerr
+
+    for(const q of generated){
+      // Avec plusieurs PDF, ne jamais attribuer arbitrairement la question au premier document.
+      const docId=allowedIds.length===1?allowedIds[0]:null
+      const {data:question,error:e1}=await supabase.from('questions').insert({
+        quiz_id:quiz.id,
+        document_id:docId,
+        question_text:q.question,
+        source_pages:q.sourcePages||[],
+        explanation:q.explanation,
+        difficulty:q.difficulty||difficulty,
+        validation_status:'pending',
+        generated_by:'ai'
+      }).select().single()
+      if(e1)continue
+      if(Array.isArray(q.choices)&&q.choices.length){
+        await supabase.from('question_choices').insert(q.choices.map((choice:string,i:number)=>({question_id:question.id,choice_text:choice,is_correct:i===q.correctIndex})))
+      }
+    }
+    return NextResponse.json({quizId:quiz.id,questions:generated})
+  }catch(e:any){
+    return NextResponse.json({error:e.message||'Génération impossible'},{status:500})
+  }
+}
