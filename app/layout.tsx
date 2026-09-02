@@ -14,7 +14,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="fr">
       <body>
         <Sidebar />
-        <div className="ml-64 min-h-screen">
+        <div className="ml-72 min-h-screen bg-zinc-50">
           <Topbar />
           <main className="p-6">{children}</main>
         </div>
