@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { extractPdf } from '@/lib/pdf/extract'
 import { classifyText } from '@/lib/classification'
 import { extractDocumentMetadata } from '@/lib/ai/provider'
+import { paperlessUpload } from '@/lib/paperless'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -95,7 +96,15 @@ export async function POST(request: Request) {
       if (!tag) tag = (await supabase.from('tags').insert({ name }).select('id').single()).data
       if (tag) await supabase.from('document_tags').upsert({ document_id: doc.id, tag_id: tag.id })
     }
-    return NextResponse.json({ document: doc, classification: { ...classification, categories, tags: allTags }, metadata, renamed: useAiTitle, originalName: file.name }, { status: 201 })
+
+    let paperlessQueued=false
+    try {
+      const paperlessFile=new File([bytes],safePdfName(title),{type:'application/pdf'})
+      await paperlessUpload(paperlessFile,title)
+      paperlessQueued=true
+    } catch {}
+
+    return NextResponse.json({ document: doc, classification: { ...classification, categories, tags: allTags }, metadata, renamed: useAiTitle, originalName: file.name, paperlessQueued }, { status: 201 })
   } catch (error: any) {
     await supabase.storage.from('documents').remove([storagePath])
     return NextResponse.json({ error: error?.message || 'Extraction PDF impossible' }, { status: 500 })
