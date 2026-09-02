@@ -9,7 +9,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate installer shell syntax
-        run: bash -n start-revisionos.sh
+        run: |
+          bash -n start-revisionos.sh
+          bash -n scripts/setup-document-stack.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -21,3 +23,5 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: example
           SUPABASE_SERVICE_ROLE_KEY: example
           AI_PROVIDER: ollama
+          PAPERLESS_URL: http://127.0.0.1:8010
+          JOPLIN_BASE_URL: http://127.0.0.1:41184
