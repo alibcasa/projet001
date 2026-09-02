@@ -54,9 +54,9 @@ export async function POST(request: Request) {
     if (metadata?.category) {
       const existingIndex = categories.findIndex(c => c.name.toLowerCase() === metadata!.category!.toLowerCase())
       if (existingIndex >= 0) categories.splice(existingIndex, 1)
-      categories.unshift({ name: metadata.category, confidence: Math.round((metadata.confidence || 0.8) * 100) / 100 })
+      categories.unshift({ name: metadata.category, confidence: Math.round((metadata.confidence || 0.8) * 10000) / 100 })
     }
-    const confidence = Math.max(categories[0]?.confidence || 0, metadata?.confidence || 0)
+    const confidence = Math.max(categories[0]?.confidence || 0, (metadata?.confidence || 0) * 100)
     const allTags = Array.from(new Set([...(metadata?.tags || []), ...classification.tags])).slice(0,20)
 
     const descriptionParts = [metadata?.documentType, metadata?.institution, metadata?.year ? String(metadata.year) : ''].filter(Boolean)
