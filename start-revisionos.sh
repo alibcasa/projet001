@@ -18,11 +18,9 @@ echo "===================================================="
 echo " RevisionOS V1 - Installation automatique complète"
 echo "===================================================="
 
-# Dépendances système minimales
-if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
-  sudo apt update
-  sudo apt install -y git curl ca-certificates
-fi
+# Dépendances système
+sudo apt update -qq
+sudo apt install -y git curl ca-certificates openssl >/dev/null
 
 # Node.js 22
 need_node=0
@@ -40,7 +38,7 @@ fi
 info "Node.js $(node -v)"
 info "npm $(npm -v)"
 
-# Synchronisation stricte avec GitHub, en conservant uniquement les fichiers locaux utiles
+# Synchronisation stricte avec GitHub
 if [ -d "$APP/.git" ]; then
   warn "Synchronisation stricte avec GitHub..."
   git -C "$APP" remote set-url origin "$REPO"
@@ -64,7 +62,7 @@ info "Commit GitHub installé: ${local_sha:0:12}"
 [ -f .env.local ] || cp .env.example .env.local
 set_env(){
   local key="$1" value="$2"
-  if grep -q "^${key}=" .env.local; then
+  if grep -q "^${key}=" .env.local 2>/dev/null; then
     sed -i "s|^${key}=.*|${key}=${value}|" .env.local
   else
     printf '%s=%s\n' "$key" "$value" >> .env.local
@@ -86,73 +84,72 @@ info "Dépendances npm installées"
 # Docker pour Supabase local
 if ! command -v docker >/dev/null 2>&1; then
   warn "Installation de Docker..."
-  sudo apt update
   sudo apt install -y docker.io
 fi
 sudo systemctl enable --now docker
-if ! getent group docker >/dev/null 2>&1; then sudo groupadd docker; fi
-sudo usermod -aG docker "$USER" >/dev/null 2>&1 || true
+sudo docker info >/dev/null 2>&1 || fail "Docker ne répond pas après installation."
+info "Docker prêt"
 
-# Certaines installations Ubuntu minimales n'ont pas la commande sg.
-# Elle est fournie par le paquet login. On l'installe automatiquement si nécessaire.
-if ! command -v sg >/dev/null 2>&1; then
-  warn "Installation de l'outil système sg requis pour Docker..."
-  sudo apt update
-  sudo apt install -y login
-fi
-
-run_docker_group(){
-  if command -v sg >/dev/null 2>&1; then
-    sg docker -c "cd '$APP' && $*"
-  else
-    # Fallback robuste: exécuter la CLI Supabase avec privilèges Docker,
-    # puis rendre au compte utilisateur les fichiers éventuellement créés.
-    sudo -E bash -lc "cd '$APP' && $*"
-    sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" 2>/dev/null || true
+# Exécute la CLI Supabase avec sudo : aucune dépendance à sg/newgrp.
+run_supabase(){
+  local args="$*"
+  sudo -E env "PATH=$PATH" bash -lc "cd '$APP' && npx --yes supabase@latest $args"
+  if [ -d "$APP/supabase" ]; then
+    sudo chown -R "$USER":"$(id -gn "$USER")" "$APP/supabase" || true
   fi
 }
 
-# Supabase local: utilisé automatiquement si aucune vraie configuration cloud n'est fournie
 supabase_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
 supabase_key="$(get_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"
+SUPABASE_DB_URL="${SUPABASE_DB_URL:-}"
+
+# Si aucune vraie configuration cloud n'est fournie, provisionner Supabase local.
 if [ -z "$supabase_url" ] || [ -z "$supabase_key" ]; then
   warn "Configuration Supabase locale automatique..."
   if [ ! -f supabase/config.toml ]; then
-    run_docker_group "npx --yes supabase@latest init"
+    run_supabase init
   fi
-  run_docker_group "npx --yes supabase@latest start"
-  status_env="$(run_docker_group "npx --yes supabase@latest status -o env")"
-  read_status(){ printf '%s\n' "$status_env" | awk -F= -v k="$1" '$1==k{v=substr($0,index($0,"=")+1); gsub(/^\"|\"$/,"",v); print v; exit}'; }
+
+  warn "Démarrage de Supabase local (le premier lancement télécharge plusieurs images Docker)..."
+  run_supabase start
+
+  status_env="$(run_supabase status -o env)"
+  read_status(){
+    printf '%s\n' "$status_env" | awk -F= -v k="$1" '$1==k{v=substr($0,index($0,"=")+1); gsub(/^\"|\"$/,"",v); print v; exit}'
+  }
   local_api="$(read_status API_URL)"
   local_anon="$(read_status ANON_KEY)"
   local_service="$(read_status SERVICE_ROLE_KEY)"
   local_db="$(read_status DB_URL)"
+
   [ -n "$local_api" ] || fail "API_URL Supabase local introuvable."
   [ -n "$local_anon" ] || fail "ANON_KEY Supabase local introuvable."
   [ -n "$local_service" ] || fail "SERVICE_ROLE_KEY Supabase local introuvable."
   [ -n "$local_db" ] || fail "DB_URL Supabase local introuvable."
+
   set_env NEXT_PUBLIC_SUPABASE_URL "$local_api"
   set_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$local_anon"
   set_env SUPABASE_SERVICE_ROLE_KEY "$local_service"
   SUPABASE_DB_URL="$local_db"
+  supabase_url="$local_api"
+  supabase_key="$local_anon"
   info "Supabase local prêt: $local_api"
 else
   info "Configuration Supabase existante détectée"
-  SUPABASE_DB_URL="${SUPABASE_DB_URL:-}"
 fi
 
-# PostgreSQL client
-if ! command -v psql >/dev/null 2>&1; then
-  sudo apt update
-  sudo apt install -y postgresql-client
-fi
+# PostgreSQL client et migrations
+if [ -n "$SUPABASE_DB_URL" ]; then
+  if ! command -v psql >/dev/null 2>&1; then
+    sudo apt install -y postgresql-client
+  fi
 
-# Migrations locales automatiques et rejouables
-if [ -n "${SUPABASE_DB_URL:-}" ]; then
   warn "Préparation de la base RevisionOS..."
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c "create table if not exists public.revisionos_migrations(name text primary key, applied_at timestamptz not null default now());" >/dev/null
 
-  if [ "$(psql "$SUPABASE_DB_URL" -Atc "select case when to_regclass('public.documents') is not null and to_regclass('public.keynotes') is not null and to_regclass('public.quizzes') is not null then 1 else 0 end")" = "1" ]; then
+  # Si une ancienne exécution avait déjà créé le schéma, ne pas rejouer 001.
+  schema_exists="$(psql "$SUPABASE_DB_URL" -Atc "select case when to_regclass('public.documents') is not null and to_regclass('public.keynotes') is not null and to_regclass('public.quizzes') is not null then 1 else 0 end")"
+  if [ "$schema_exists" = "1" ]; then
     psql "$SUPABASE_DB_URL" -c "insert into public.revisionos_migrations(name) values('001_init') on conflict do nothing" >/dev/null
   fi
 
@@ -173,20 +170,17 @@ if [ -n "${SUPABASE_DB_URL:-}" ]; then
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/seed/001_categories.sql >/dev/null
   info "Base de données et Storage PDF prêts"
 else
-  warn "Supabase cloud détecté sans SUPABASE_DB_URL: le site peut démarrer, mais les migrations cloud ne peuvent pas être appliquées automatiquement."
+  warn "Supabase cloud détecté sans SUPABASE_DB_URL : migrations cloud non appliquées automatiquement."
 fi
 
-# Création automatique du super-admin pour l'installation locale
-if [ -n "${SUPABASE_DB_URL:-}" ]; then
+# Compte super-admin local
+if [ -n "$SUPABASE_DB_URL" ]; then
   service_key="$(get_env SUPABASE_SERVICE_ROLE_KEY)"
   api_url="$(get_env NEXT_PUBLIC_SUPABASE_URL)"
   admin_id="$(psql "$SUPABASE_DB_URL" -At -v email="$ADMIN_EMAIL" -c "select id from auth.users where email=:'email' limit 1")"
+
   if [ -z "$admin_id" ]; then
-    if command -v openssl >/dev/null 2>&1; then
-      ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9@#%+=' | head -c 20)}"
-    else
-      ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-RevisionOS-Local-2026!}"
-    fi
+    ADMIN_PASSWORD="${REVISIONOS_ADMIN_PASSWORD:-$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9@#%+=' | head -c 20)}"
     warn "Création du compte super-admin local..."
     curl -fsS -X POST "$api_url/auth/v1/admin/users" \
       -H "apikey: $service_key" \
@@ -204,10 +198,10 @@ if [ -n "${SUPABASE_DB_URL:-}" ]; then
   fi
 fi
 
-# Ollama + modèle local pour les QCM IA
+# Ollama pour QCM IA. Peut être désactivé avec INSTALL_OLLAMA=0.
 if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
   if ! command -v ollama >/dev/null 2>&1; then
-    warn "Installation d'Ollama pour les QCM IA..."
+    warn "Installation d'Ollama..."
     curl -fsSL https://ollama.com/install.sh | sh
   fi
   sudo systemctl enable --now ollama >/dev/null 2>&1 || true
@@ -216,7 +210,7 @@ if [ "${INSTALL_OLLAMA:-1}" = "1" ]; then
     sleep 3
   fi
   if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$OLLAMA_MODEL"; then
-    warn "Téléchargement du modèle IA $OLLAMA_MODEL (premier lancement uniquement)..."
+    warn "Téléchargement du modèle IA $OLLAMA_MODEL..."
     ollama pull "$OLLAMA_MODEL"
   fi
   info "Ollama prêt avec $OLLAMA_MODEL"
