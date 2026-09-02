@@ -5,21 +5,10 @@ services:
     volumes:
       - paperless-redis:/data
 
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: paperless
-      POSTGRES_USER: paperless
-      POSTGRES_PASSWORD: ${PAPERLESS_DB_PASSWORD}
-    volumes:
-      - paperless-postgres:/var/lib/postgresql/data
-
   webserver:
     image: ghcr.io/paperless-ngx/paperless-ngx:latest
     restart: unless-stopped
     depends_on:
-      - db
       - broker
     ports:
       - "127.0.0.1:${PAPERLESS_PORT:-8010}:8000"
@@ -27,11 +16,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       PAPERLESS_REDIS: redis://broker:6379
-      PAPERLESS_DBENGINE: postgresql
-      PAPERLESS_DBHOST: db
-      PAPERLESS_DBNAME: paperless
-      PAPERLESS_DBUSER: paperless
-      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD}
+      PAPERLESS_DBENGINE: sqlite
       PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
       PAPERLESS_URL: http://localhost:${PAPERLESS_PORT:-8010}
       PAPERLESS_TIME_ZONE: Africa/Casablanca
@@ -43,6 +28,7 @@ services:
       PAPERLESS_FILENAME_FORMAT: "{document_type}/{title}"
       PAPERLESS_FILENAME_FORMAT_REMOVE_NONE: "true"
       PAPERLESS_APP_TITLE: "RevisionOS Documents"
+      PAPERLESS_WEBSERVER_WORKERS: "1"
       PAPERLESS_AI_ENABLED: "true"
       PAPERLESS_AI_LLM_BACKEND: ollama
       PAPERLESS_AI_LLM_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
@@ -61,5 +47,4 @@ volumes:
   paperless-data:
   paperless-media:
   paperless-export:
-  paperless-postgres:
   paperless-redis:
